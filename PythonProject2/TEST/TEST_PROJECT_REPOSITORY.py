@@ -1,9 +1,10 @@
-import unittest
 import sqlite3
+import pytest
+
 
 class ProjectManageSystem:
     def __init__(self, db_name=":memory:"):
-        self.conn = sqlite3.connect(db_name)  # Use an in-memory DB
+        self.conn = sqlite3.connect(db_name)
         self.cursor = self.conn.cursor()
         self.create_tables()
 
@@ -39,48 +40,46 @@ class ProjectManageSystem:
     def add_task(self, task_name, project_id, employee_id, status):
         try:
             self.cursor.execute('''INSERT INTO Task (task_name, project_id, employee_id, Status)
-                                    VALUES (?, ?, ?, ?)''', (task_name, project_id, employee_id, status))
+                                   VALUES (?, ?, ?, ?)''', (task_name, project_id, employee_id, status))
             self.conn.commit()
         except sqlite3.IntegrityError:
             raise Exception("Task creation failed, check constraints.")
 
     def search_projects_by_employee(self, employee_id):
         self.cursor.execute('''SELECT * FROM Project WHERE Id IN (
-                                SELECT project_id FROM Employee WHERE id = ?)''', (employee_id,))
+                                SELECT Project_id FROM Employee WHERE id = ?)''', (employee_id,))
         return self.cursor.fetchall()
 
+# ------------------------
+# Test code
+# ------------------------
 
-class TestProjectManageSystem(unittest.TestCase):
-    def setUp(self):
-        self.db = ProjectManageSystem()
+@pytest.fixture
+def db():
+    system = ProjectManageSystem()
 
-        # Add sample data for tests
-        self.db.cursor.execute('''INSERT INTO Project (ProjectName, Description, Start_date, Status)
-                                  VALUES ('Test Project', 'Test Description', '2025-01-01', 'started')''')
-        self.db.cursor.execute('''INSERT INTO Employee (name, Designation, Gender, Salary, Project_id)
-                                  VALUES ('Test Employee', 'Developer', 'Male', 50000, 1)''')
-        self.db.conn.commit()
+    # Insert test project & employee
+    system.cursor.execute('''INSERT INTO Project (ProjectName, Description, Start_date, Status)
+                             VALUES ('Test Project', 'Test Description', '2025-01-01', 'started')''')
+    system.cursor.execute('''INSERT INTO Employee (name, Designation, Gender, Salary, Project_id)
+                             VALUES ('Test Employee', 'Developer', 'Male', 50000, 1)''')
+    system.conn.commit()
 
-    def test_task_creation(self):
-        # Adding a task
-        self.db.add_task("Test Task", 1, 1, "Assigned")
+    yield system
+    system.conn.close()
 
-        # Verify task creation
-        self.db.cursor.execute("SELECT * FROM Task WHERE task_name='Test Task'")
-        task = self.db.cursor.fetchone()
-        self.assertIsNotNone(task)
-        self.assertEqual(task[1], "Test Task")
+def test_task_creation(db):
+    db.add_task("Test Task", 1, 1, "Assigned")
+    db.cursor.execute("SELECT * FROM Task WHERE task_name = 'Test Task'")
+    task = db.cursor.fetchone()
+    assert task is not None
+    assert task[1] == "Test Task"
 
-    def test_exceptions_on_task_creation(self):
-        with self.assertRaises(Exception):
-            self.db.add_task("Invalid Task", 9999, 9999, "Invalid Status")
+def test_invalid_task_creation_raises_exception(db):
+    with pytest.raises(Exception, match="Task creation failed"):
+        db.add_task("Invalid Task", 9999, 9999, "Invalid Status")
 
-    def test_search_projects_by_employee(self):
-        projects = self.db.search_projects_by_employee(1)
-        self.assertEqual(len(projects), 1)
-
-    def tearDown(self):
-        self.db.conn.close()
-
-if __name__ == '__main__':
-   unittest.main()
+def test_search_projects_by_employee(db):
+    projects = db.search_projects_by_employee(1)
+    assert len(projects) == 1
+    assert projects[0][1] == "Test Project"
